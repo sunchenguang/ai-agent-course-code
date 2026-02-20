@@ -68,17 +68,7 @@ export const pipelinePrompt = new PipelinePromptTemplate({
         { name: 'task_block', prompt: taskPrompt },
         { name: 'format_block', prompt: formatPrompt },
     ],
-    finalPrompt: finalWeeklyPrompt,
-    inputVariables: [
-        'tone',
-        'company_name',
-        'team_name',
-        'manager_name',
-        'week_range',
-        'team_goal',
-        'dev_activities',
-        'company_values',
-    ],
+    finalPrompt: finalWeeklyPrompt
 });
 
 const pipelineFormatted = await pipelinePrompt.format({

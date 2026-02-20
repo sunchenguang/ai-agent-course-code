@@ -45,16 +45,7 @@ const okrReviewPipeline = new PipelinePromptTemplate({
 {format_block}
 
 现在请生成本次的【季度 OKR 回顾邮件】：`
-  ),
-  inputVariables: [
-    'tone',
-    'company_name',
-    'team_name',
-    'manager_name',
-    'week_range',
-    'team_goal',
-    'okr_facts',
-  ],
+  )
 });
 
 // 4. 示例：构造一个季度 OKR 回顾场景的 Prompt

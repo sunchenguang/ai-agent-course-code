@@ -77,16 +77,7 @@ const weeklyChatPipelinePrompt = new PipelinePromptTemplate({
     { name: 'format_block', prompt: weeklyFormatPrompt }, // 本文件自己的格式模块
   ],
   // 注意：这里的 finalPrompt 是 ChatPromptTemplate，而不是普通 PromptTemplate
-  finalPrompt: finalChatPrompt,
-  inputVariables: [
-    'tone',
-    'company_name',
-    'team_name',
-    'manager_name',
-    'week_range',
-    'team_goal',
-    'dev_activities',
-  ],
+  finalPrompt: finalChatPrompt
 });
 
 // E. 示例：构造一份消息数组并喂给 Chat 模型
