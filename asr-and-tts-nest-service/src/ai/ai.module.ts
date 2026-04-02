@@ -3,8 +3,10 @@ import { AiService } from './ai.service';
 import { AiController } from './ai.controller';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI } from '@langchain/openai';
+import { ImageKnowledgeModule } from '../image-knowledge/image-knowledge.module';
 
 @Module({
+  imports: [ImageKnowledgeModule],
   controllers: [AiController],
   providers: [
     AiService,

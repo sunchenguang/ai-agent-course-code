@@ -7,6 +7,7 @@ import { ConfigModule } from '@nestjs/config';
 import { ControllerService } from './controller/controller.service';
 import { SpeechModule } from './speech/speech.module';
 import { ChatMemoryModule } from './chat-memory/chat-memory.module';
+import { ImageKnowledgeModule } from './image-knowledge/image-knowledge.module';
 import { ServeStaticModule } from '@nestjs/serve-static';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 
@@ -25,6 +26,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
     }),
     SpeechModule,
     ChatMemoryModule,
+    ImageKnowledgeModule,
   ],
   controllers: [AppController],
   providers: [AppService, ControllerService],

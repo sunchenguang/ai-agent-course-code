@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>图片链接 → 中文描述</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        max-width: 720px;
+        margin: 40px auto;
+        padding: 0 16px;
+        line-height: 1.6;
+        color: #222;
+      }
+      h1 {
+        font-size: 1.35rem;
+        font-weight: 600;
+      }
+      label {
+        display: block;
+        margin-top: 16px;
+        font-size: 0.9rem;
+        color: #444;
+      }
+      input[type="text"],
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        margin-top: 6px;
+        padding: 10px 12px;
+        font-size: 15px;
+        border: 1px solid #cfd8dc;
+        border-radius: 8px;
+      }
+      textarea {
+        min-height: 120px;
+        resize: vertical;
+        font-family: inherit;
+      }
+      .preview-wrap {
+        margin-top: 16px;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 12px;
+        background: #fafafa;
+        min-height: 120px;
+      }
+      .preview-wrap img {
+        max-width: 100%;
+        max-height: 320px;
+        display: block;
+        margin: 0 auto;
+        border-radius: 4px;
+        object-fit: contain;
+      }
+      .preview-placeholder {
+        color: #888;
+        text-align: center;
+        padding: 40px 12px;
+        font-size: 14px;
+      }
+      .actions {
+        margin-top: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+      button {
+        padding: 8px 16px;
+        border-radius: 8px;
+        border: 1px solid #37474f;
+        background: #37474f;
+        color: #fff;
+        font-size: 14px;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      button.secondary {
+        background: #fff;
+        color: #37474f;
+      }
+      .status {
+        margin-top: 12px;
+        font-size: 14px;
+        color: #444;
+      }
+      .status.error {
+        color: #c62828;
+      }
+      .hint {
+        font-size: 13px;
+        color: #666;
+        margin-top: 8px;
+      }
+      pre.raw {
+        margin-top: 12px;
+        background: #f6f8fa;
+        padding: 12px;
+        border-radius: 6px;
+        white-space: pre-wrap;
+        font-size: 13px;
+        display: none;
+      }
+      pre.raw.show {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>图片链接生成中文描述</h1>
+    <p class="hint">
+      填写可访问的图片 URL（如阿里云 OSS）。服务端会尝试读取照片内嵌的
+      <strong>EXIF</strong>（拍摄时间、GPS、相机型号等），并结合视觉模型生成中文说明。无 EXIF 时仍可生成画面描述；<strong>具体地名</strong>通常需 GPS 逆地理或模型根据画面推测。
+    </p>
+
+    <label for="imageUrl">图片链接</label>
+    <input id="imageUrl" type="text" placeholder="https://your-bucket.oss-region.aliyuncs.com/..." autocomplete="off" />
+
+    <label for="title">标题（可选，保存时用）</label>
+    <input id="title" type="text" placeholder="例如：产品主图" />
+
+    <label for="tags">标签（可选，逗号分隔）</label>
+    <input id="tags" type="text" placeholder="例如：活动, 春节" />
+
+    <div class="preview-wrap" id="previewBox">
+      <div class="preview-placeholder" id="previewPlaceholder">填写链接后将显示预览（若跨域限制可能无法显示，不影响后端读图）</div>
+      <img id="previewImg" alt="" style="display: none" />
+    </div>
+
+    <div class="actions">
+      <button type="button" id="btnPreview" class="secondary">刷新预览</button>
+      <button type="button" id="btnGenerate">生成描述</button>
+      <button type="button" id="btnSave" class="secondary">保存到知识库</button>
+    </div>
+    <div class="status" id="status"></div>
+
+    <label>EXIF / 元数据（自动生成）</label>
+    <pre class="meta-block" id="metadataBox" style="display: none; background: #f0f7ff; border: 1px solid #b3d9ff; border-radius: 8px; padding: 12px; font-size: 13px; white-space: pre-wrap; margin-top: 6px"></pre>
+
+    <label for="description">描述（可编辑）</label>
+    <textarea id="description" placeholder="点击「生成描述」后内容会出现在这里"></textarea>
+
+    <pre class="raw" id="rawError"></pre>
+
+    <script>
+      const imageUrlEl = document.getElementById("imageUrl");
+      const titleEl = document.getElementById("title");
+      const tagsEl = document.getElementById("tags");
+      const descriptionEl = document.getElementById("description");
+      const previewImg = document.getElementById("previewImg");
+      const previewPlaceholder = document.getElementById("previewPlaceholder");
+      const statusEl = document.getElementById("status");
+      const rawErrorEl = document.getElementById("rawError");
+      const btnPreview = document.getElementById("btnPreview");
+      const btnGenerate = document.getElementById("btnGenerate");
+      const btnSave = document.getElementById("btnSave");
+      const metadataBox = document.getElementById("metadataBox");
+
+      function setStatus(text, isError) {
+        statusEl.textContent = text || "";
+        statusEl.classList.toggle("error", !!isError);
+        rawErrorEl.classList.remove("show");
+        rawErrorEl.textContent = "";
+      }
+
+      function showRawError(text) {
+        rawErrorEl.textContent = text || "";
+        rawErrorEl.classList.toggle("show", !!text);
+      }
+
+      function formatMetadataForDisplay(m) {
+        const lines = [];
+        if (m.hasExif) lines.push("已从文件读取 EXIF");
+        else lines.push("未读取到有效 EXIF（截图或元数据已剥离时常见）");
+        if (m.capturedAt) lines.push("拍摄时间: " + m.capturedAt);
+        if (m.latitude != null && m.longitude != null) {
+          lines.push("GPS: " + m.latitude + ", " + m.longitude + "（可在地图中反查地点）");
+        }
+        if (m.altitudeMeters != null) lines.push("海拔约: " + m.altitudeMeters + " m");
+        if (m.camera) lines.push("设备: " + m.camera);
+        if (m.lens) lines.push("镜头: " + m.lens);
+        if (m.note) lines.push("说明: " + m.note);
+        return lines.join("\n");
+      }
+
+      function normalizeUrl(raw) {
+        const s = (raw || "").trim();
+        if (!s) return "";
+        try {
+          const u = new URL(s);
+          if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+          return u.toString();
+        } catch {
+          return "";
+        }
+      }
+
+      function updateImagePreview() {
+        const url = normalizeUrl(imageUrlEl.value);
+        if (!url) {
+          previewImg.style.display = "none";
+          previewPlaceholder.style.display = "block";
+          previewPlaceholder.textContent = "填写有效 http(s) 链接后点击「刷新预览」";
+          previewImg.removeAttribute("src");
+          return;
+        }
+        previewPlaceholder.style.display = "none";
+        previewImg.style.display = "block";
+        previewImg.alt = "预览";
+        previewImg.referrerPolicy = "no-referrer";
+        previewImg.onload = () => setStatus("图片已加载预览");
+        previewImg.onerror = () => {
+          previewImg.style.display = "none";
+          previewPlaceholder.style.display = "block";
+          previewPlaceholder.textContent = "浏览器无法加载此图（跨域或鉴权），仍可尝试「生成描述」由服务端读图。";
+          setStatus("预览失败（可继续生成描述）", false);
+        };
+        previewImg.src = url;
+      }
+
+      btnPreview.addEventListener("click", () => {
+        setStatus("");
+        updateImagePreview();
+      });
+
+      imageUrlEl.addEventListener("change", () => updateImagePreview());
+      imageUrlEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          updateImagePreview();
+        }
+      });
+
+      btnGenerate.addEventListener("click", async () => {
+        const imageUrl = normalizeUrl(imageUrlEl.value);
+        if (!imageUrl) {
+          setStatus("请填写有效的 http(s) 图片链接", true);
+          return;
+        }
+        btnGenerate.disabled = true;
+        setStatus("正在生成描述…");
+        try {
+          const res = await fetch("/image-knowledge/preview-description", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ imageUrl }),
+          });
+          const data = await res.json();
+          if (!data.success) {
+            setStatus(data.message || "生成失败", true);
+            showRawError(JSON.stringify(data, null, 2));
+            return;
+          }
+          descriptionEl.value = data.description || "";
+          if (data.metadata) {
+            metadataBox.style.display = "block";
+            metadataBox.textContent = formatMetadataForDisplay(data.metadata);
+          } else {
+            metadataBox.style.display = "none";
+            metadataBox.textContent = "";
+          }
+          setStatus("已生成，可在下方编辑后保存");
+        } catch (err) {
+          setStatus("请求失败：" + (err.message || String(err)), true);
+        } finally {
+          btnGenerate.disabled = false;
+        }
+      });
+
+      btnSave.addEventListener("click", async () => {
+        const imageUrl = normalizeUrl(imageUrlEl.value);
+        if (!imageUrl) {
+          setStatus("请填写有效的图片链接", true);
+          return;
+        }
+        const description = (descriptionEl.value || "").trim();
+        if (!description) {
+          setStatus("描述不能为空，请先生成或手动填写", true);
+          return;
+        }
+        btnSave.disabled = true;
+        setStatus("正在保存…");
+        try {
+          const body = {
+            imageUrl,
+            description,
+            title: (titleEl.value || "").trim() || undefined,
+            tags: (tagsEl.value || "").trim() || undefined,
+          };
+          const res = await fetch("/image-knowledge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json();
+          if (!data.success) {
+            setStatus(data.message || "保存失败", true);
+            showRawError(JSON.stringify(data, null, 2));
+            return;
+          }
+          setStatus("已保存，id：" + (data.record && data.record.id));
+        } catch (err) {
+          setStatus("请求失败：" + (err.message || String(err)), true);
+        } finally {
+          btnSave.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
