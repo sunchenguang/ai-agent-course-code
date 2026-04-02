@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>聊天记录问答</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #fff;
+      text-align: center;
+      margin-bottom: 30px;
+      font-weight: 600;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .hint {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 14px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 16px;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    .btn {
+      display: inline-block;
+      padding: 14px 32px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .answer-section {
+      margin-top: 30px;
+      display: none;
+    }
+    .answer-section.visible {
+      display: block;
+    }
+    .answer-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .answer-content {
+      background: #f8f9fa;
+      border-radius: 12px;
+      padding: 20px;
+      line-height: 1.8;
+      color: #444;
+      min-height: 100px;
+      white-space: pre-wrap;
+    }
+    .answer-content.loading {
+      color: #888;
+    }
+    .sources-section {
+      margin-top: 20px;
+      display: none;
+    }
+    .sources-section.visible {
+      display: block;
+    }
+    .sources-title {
+      font-weight: 500;
+      color: #666;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+    .source-item {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .source-score {
+      display: inline-block;
+      background: #667eea;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin-right: 8px;
+    }
+    .source-text {
+      color: #555;
+      margin-top: 6px;
+    }
+    .nav-link {
+      display: inline-block;
+      margin-top: 20px;
+      color: #fff;
+      text-decoration: none;
+      opacity: 0.9;
+    }
+    .nav-link:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+    .example-questions {
+      margin-top: 15px;
+    }
+    .example-questions span {
+      display: inline-block;
+      background: #f0f0f0;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      color: #666;
+      margin: 4px 4px 4px 0;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .example-questions span:hover {
+      background: #e0e0e0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>💕 聊天记录问答</h1>
+    <div class="card">
+      <div class="form-group">
+        <label for="question">问一个问题</label>
+        <p class="hint">基于你上传的聊天记录，AI 会帮你找到相关内容并回答</p>
+        <input type="text" id="question" placeholder="例如：我们上次聊了什么开心的事？">
+      </div>
+      <button class="btn" id="askBtn" onclick="askQuestion()">提问</button>
+      
+      <div class="example-questions">
+        <span onclick="setQuestion('我们最近聊了什么有趣的事？')">我们最近聊了什么有趣的事？</span>
+        <span onclick="setQuestion('她最近的心情怎么样？')">她最近的心情怎么样？</span>
+        <span onclick="setQuestion('我们有什么共同的爱好？')">我们有什么共同的爱好？</span>
+      </div>
+
+      <div class="answer-section" id="answerSection">
+        <div class="answer-title">
+          <span>🤖</span> AI 回答
+        </div>
+        <div class="answer-content" id="answerContent"></div>
+      </div>
+
+      <div class="sources-section" id="sourcesSection">
+        <div class="sources-title">📚 参考的聊天记录片段</div>
+        <div id="sourcesList"></div>
+      </div>
+    </div>
+    <a href="/chat-upload.html" class="nav-link">← 返回上传页面</a>
+  </div>
+
+  <script>
+    const questionEl = document.getElementById('question');
+    const askBtn = document.getElementById('askBtn');
+    const answerSection = document.getElementById('answerSection');
+    const answerContent = document.getElementById('answerContent');
+    const sourcesSection = document.getElementById('sourcesSection');
+    const sourcesList = document.getElementById('sourcesList');
+
+    function setQuestion(q) {
+      questionEl.value = q;
+      questionEl.focus();
+    }
+
+    questionEl.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        askQuestion();
+      }
+    });
+
+    async function askQuestion() {
+      const question = questionEl.value.trim();
+      if (!question) {
+        alert('请输入问题');
+        return;
+      }
+
+      askBtn.disabled = true;
+      answerSection.classList.add('visible');
+      answerContent.classList.add('loading');
+      answerContent.textContent = '正在思考...';
+      sourcesSection.classList.remove('visible');
+
+      try {
+        // 先获取相关片段
+        const searchRes = await fetch(`/chat-memory/search?q=${encodeURIComponent(question)}&limit=3`);
+        const searchData = await searchRes.json();
+        
+        if (searchData.success && searchData.results.length > 0) {
+          sourcesSection.classList.add('visible');
+          sourcesList.innerHTML = searchData.results.map(r => `
+            <div class="source-item">
+              <span class="source-score">相似度 ${(r.score * 100).toFixed(1)}%</span>
+              <div class="source-text">${escapeHtml(r.content)}</div>
+            </div>
+          `).join('');
+        }
+
+        // 流式获取回答
+        answerContent.textContent = '';
+        answerContent.classList.remove('loading');
+        
+        const response = await fetch(`/chat-memory/ask?q=${encodeURIComponent(question)}&limit=3`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          
+          const text = decoder.decode(value);
+          const lines = text.split('\n');
+          
+          for (const line of lines) {
+            if (line.startsWith('data: ')) {
+              const data = line.slice(6);
+              if (data === '[DONE]') break;
+              try {
+                const parsed = JSON.parse(data);
+                if (parsed.content) {
+                  answerContent.textContent += parsed.content;
+                }
+              } catch (e) {}
+            }
+          }
+        }
+
+        if (!answerContent.textContent) {
+          answerContent.textContent = '没有找到相关的聊天记录内容。';
+        }
+      } catch (error) {
+        answerContent.classList.remove('loading');
+        answerContent.textContent = '请求失败: ' + error.message;
+      } finally {
+        askBtn.disabled = false;
+      }
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

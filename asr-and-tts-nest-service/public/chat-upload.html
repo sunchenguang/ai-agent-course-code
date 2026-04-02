@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>上传聊天记录</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #fff;
+      text-align: center;
+      margin-bottom: 30px;
+      font-weight: 600;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 30px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .hint {
+      font-size: 13px;
+      color: #888;
+      margin-bottom: 8px;
+    }
+    input[type="text"] {
+      width: 100%;
+      padding: 12px 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 15px;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    textarea {
+      width: 100%;
+      min-height: 300px;
+      padding: 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 15px;
+      line-height: 1.6;
+      resize: vertical;
+      transition: border-color 0.2s;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    .btn {
+      display: inline-block;
+      padding: 14px 32px;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 5px 20px rgba(102, 126, 234, 0.4);
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .btn-group {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    .btn-secondary {
+      background: #f5f5f5;
+      color: #333;
+    }
+    .btn-secondary:hover {
+      background: #e8e8e8;
+      box-shadow: none;
+    }
+    .btn-danger {
+      background: #ff4757;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 8px;
+      display: none;
+    }
+    .status.success {
+      display: block;
+      background: #d4edda;
+      color: #155724;
+    }
+    .status.error {
+      display: block;
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .status.loading {
+      display: block;
+      background: #fff3cd;
+      color: #856404;
+    }
+    .nav-link {
+      display: inline-block;
+      margin-top: 20px;
+      color: #fff;
+      text-decoration: none;
+      opacity: 0.9;
+    }
+    .nav-link:hover {
+      opacity: 1;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>💬 上传聊天记录</h1>
+    <div class="card">
+      <div class="form-group">
+        <label for="source">来源标签（可选）</label>
+        <input type="text" id="source" placeholder="例如：微信聊天、日常对话...">
+      </div>
+      <div class="form-group">
+        <label for="content">聊天记录内容</label>
+        <p class="hint">粘贴你和女朋友的聊天记录，系统会自动进行智能分块存储</p>
+        <textarea id="content" placeholder="粘贴聊天记录到这里...
+
+例如：
+我：今天天气真好
+她：是啊，要不要出去走走
+我：好呀，去公园吧
+她：可以，我换身衣服
+..."></textarea>
+      </div>
+      <div class="btn-group">
+        <button class="btn" id="submitBtn" onclick="submitChat()">提交保存</button>
+        <button class="btn btn-secondary" onclick="clearForm()">清空内容</button>
+        <button class="btn btn-danger" onclick="deleteAll()">清空数据库</button>
+      </div>
+      <div class="status" id="status"></div>
+    </div>
+    <a href="/chat-ask.html" class="nav-link">→ 去问答页面</a>
+  </div>
+
+  <script>
+    const contentEl = document.getElementById('content');
+    const sourceEl = document.getElementById('source');
+    const statusEl = document.getElementById('status');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function showStatus(message, type) {
+      statusEl.className = 'status ' + type;
+      statusEl.textContent = message;
+    }
+
+    async function submitChat() {
+      const content = contentEl.value.trim();
+      if (!content) {
+        showStatus('请输入聊天记录内容', 'error');
+        return;
+      }
+
+      submitBtn.disabled = true;
+      showStatus('正在处理和存储...', 'loading');
+
+      try {
+        const response = await fetch('/chat-memory/insert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            content,
+            source: sourceEl.value.trim() || 'chat'
+          })
+        });
+
+        const data = await response.json();
+        if (data.success) {
+          showStatus(`✓ 成功存储！共分成 ${data.inserted} 个片段`, 'success');
+          contentEl.value = '';
+        } else {
+          showStatus('存储失败: ' + (data.message || '未知错误'), 'error');
+        }
+      } catch (error) {
+        showStatus('请求失败: ' + error.message, 'error');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    function clearForm() {
+      contentEl.value = '';
+      sourceEl.value = '';
+      statusEl.className = 'status';
+    }
+
+    async function deleteAll() {
+      if (!confirm('确定要清空所有聊天记录数据吗？此操作不可恢复！')) {
+        return;
+      }
+
+      showStatus('正在清空...', 'loading');
+      try {
+        const response = await fetch('/chat-memory/delete-all', { method: 'POST' });
+        const data = await response.json();
+        if (data.success) {
+          showStatus('✓ 数据库已清空', 'success');
+        } else {
+          showStatus('清空失败', 'error');
+        }
+      } catch (error) {
+        showStatus('请求失败: ' + error.message, 'error');
+      }
+    }
+  </script>
+</body>
+</html>
