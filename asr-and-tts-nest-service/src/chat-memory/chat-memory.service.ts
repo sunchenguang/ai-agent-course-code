@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { MilvusClient, DataType, MetricType, IndexType } from '@zilliz/milvus2-sdk-node';
 import { OpenAIEmbeddings, ChatOpenAI } from '@langchain/openai';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
+import { ImageKnowledgeService } from '../image-knowledge/image-knowledge.service';
 
 const COLLECTION_NAME = 'chat_memory';
 const VECTOR_DIM = 1024;
@@ -14,7 +15,10 @@ export class ChatMemoryService implements OnModuleInit {
   private chatModel: ChatOpenAI;
   private textSplitter: RecursiveCharacterTextSplitter;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    private readonly imageKnowledge: ImageKnowledgeService,
+  ) {
     this.client = new MilvusClient({
       address: this.configService.get('MILVUS_ADDRESS') || 'localhost:19530',
     });
@@ -131,7 +135,11 @@ export class ChatMemoryService implements OnModuleInit {
     return searchResult.results;
   }
 
-  async *askQuestion(question: string, limit: number = 3): AsyncGenerator<string> {
+  async *askQuestion(
+    question: string,
+    limit: number = 3,
+    options?: { includeImageSearch?: boolean; imageSearchLimit?: number },
+  ): AsyncGenerator<string> {
     const relevantChunks = await this.searchSimilar(question, limit);
 
     if (relevantChunks.length === 0) {
@@ -139,9 +147,26 @@ export class ChatMemoryService implements OnModuleInit {
       return;
     }
 
-    const context = relevantChunks
+    let context = relevantChunks
       .map((chunk, i) => `[片段 ${i + 1}] (相似度: ${chunk.score.toFixed(4)})\n${chunk.content}`)
       .join('\n\n---\n\n');
+
+    if (options?.includeImageSearch) {
+      try {
+        const imgLimit = options.imageSearchLimit ?? 5;
+        const hits = await this.imageKnowledge.searchForQuery(question.trim(), imgLimit);
+        if (hits.length > 0) {
+          context +=
+            '\n\n---\n\n以下是与问题相关的图片知识库条目（说明与链接来自图库检索，可作补充参考）：\n\n' +
+            this.imageKnowledge.formatHitsForPrompt(hits);
+        }
+      } catch (err) {
+        console.warn(
+          'image-knowledge 检索已跳过:',
+          err instanceof Error ? err.message : err,
+        );
+      }
+    }
 
     const prompt = `你是一个温暖贴心的 AI 助手，专门帮助用户回忆和分析他们与女朋友的聊天记录。
 

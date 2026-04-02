@@ -34,6 +34,7 @@ export class ChatMemoryController {
   async ask(
     @Query('q') question: string,
     @Query('limit') limit: string,
+    @Query('searchImages') searchImages: string,
     @Res() res: Response,
   ) {
     if (!question) {
@@ -41,12 +42,19 @@ export class ChatMemoryController {
       return;
     }
 
+    const includeImageSearch =
+      searchImages === '1' ||
+      searchImages === 'true' ||
+      searchImages?.toLowerCase() === 'yes';
+
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
     try {
-      const stream = this.chatMemoryService.askQuestion(question, limit ? parseInt(limit) : 3);
+      const stream = this.chatMemoryService.askQuestion(question, limit ? parseInt(limit) : 3, {
+        includeImageSearch,
+      });
       for await (const chunk of stream) {
         res.write(`data: ${JSON.stringify({ content: chunk })}\n\n`);
       }

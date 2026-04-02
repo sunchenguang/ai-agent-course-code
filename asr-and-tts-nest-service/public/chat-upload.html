@@ -142,6 +142,36 @@
       opacity: 1;
       text-decoration: underline;
     }
+    .ocr-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+    .ocr-row input[type="file"] {
+      display: none;
+    }
+    .btn-ocr {
+      display: inline-block;
+      padding: 10px 20px;
+      background: #eef0ff;
+      color: #5a67d8;
+      border: 2px solid #c3c9f5;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    .btn-ocr:hover {
+      background: #e4e8ff;
+      border-color: #a5b0f0;
+    }
+    .btn-ocr:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -154,7 +184,11 @@
       </div>
       <div class="form-group">
         <label for="content">聊天记录内容</label>
-        <p class="hint">粘贴你和女朋友的聊天记录，系统会自动进行智能分块存储</p>
+        <p class="hint">粘贴你和女朋友的聊天记录，系统会自动进行智能分块存储。也可选择一张或多张聊天截图（按选择顺序识别），识别结果会依次追加到下方输入框。</p>
+        <div class="ocr-row">
+          <input type="file" id="ocrImage" accept="image/*" multiple>
+          <button type="button" class="btn-ocr" id="ocrTriggerBtn">从图片识别文字（可多选）</button>
+        </div>
         <textarea id="content" placeholder="粘贴聊天记录到这里...
 
 例如：
@@ -179,6 +213,71 @@
     const sourceEl = document.getElementById('source');
     const statusEl = document.getElementById('status');
     const submitBtn = document.getElementById('submitBtn');
+    const ocrImageInput = document.getElementById('ocrImage');
+    const ocrTriggerBtn = document.getElementById('ocrTriggerBtn');
+
+    ocrTriggerBtn.addEventListener('click', () => ocrImageInput.click());
+
+    ocrImageInput.addEventListener('change', async (ev) => {
+      // FileList 与 input 联动：清空 value 后所选文件会被清空，须先用数组拷贝 File 再重置 input。
+      const files = Array.from(ev.target.files ?? []);
+      ev.target.value = '';
+      if (!files.length) return;
+      const images = files.filter((f) => f.type.startsWith('image/'));
+      const skipped = files.length - images.length;
+      if (!images.length) {
+        showStatus('请选择图片文件', 'error');
+        return;
+      }
+
+      ocrTriggerBtn.disabled = true;
+      submitBtn.disabled = true;
+      const parts = [];
+
+      try {
+        for (let i = 0; i < images.length; i++) {
+          const file = images[i];
+          showStatus(
+            `正在识别图片中的文字（${i + 1}/${images.length}，服务端视觉模型）...`,
+            'loading',
+          );
+          const fd = new FormData();
+          fd.append('image', file);
+          const response = await fetch('/image-knowledge/ocr-text', { method: 'POST', body: fd });
+          const data = await response.json();
+          if (!data.success || typeof data.text !== 'string') {
+            showStatus(
+              `第 ${i + 1} 张识别失败: ` + (data.message || '未知错误'),
+              'error',
+            );
+            return;
+          }
+          const t = data.text.trim();
+          if (t) parts.push(t);
+        }
+
+        const merged = parts.join('\n\n');
+        if (merged) {
+          const base = contentEl.value.trimEnd();
+          contentEl.value = base ? `${base}\n\n${merged}` : merged;
+        }
+        let msg;
+        if (!merged) {
+          msg = '识别完成，但未提取到可写入的文字';
+        } else if (images.length > 1) {
+          msg = `✓ 已按顺序填入 ${images.length} 张图片的识别结果，可编辑后点击「提交保存」`;
+        } else {
+          msg = '✓ 已填入识别结果，可编辑后点击「提交保存」';
+        }
+        if (skipped > 0) msg += `（已跳过 ${skipped} 个非图片文件）`;
+        showStatus(msg, 'success');
+      } catch (error) {
+        showStatus('请求失败: ' + error.message, 'error');
+      } finally {
+        ocrTriggerBtn.disabled = false;
+        submitBtn.disabled = false;
+      }
+    });
 
     function showStatus(message, type) {
       statusEl.className = 'status ' + type;

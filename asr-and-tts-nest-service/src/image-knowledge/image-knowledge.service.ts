@@ -311,6 +311,41 @@ export class ImageKnowledgeService implements OnModuleInit {
     return { description, metadata };
   }
 
+  /** 识别上传图片中的文字（如聊天截图），供前端填入文本框；走与图片知识库相同的视觉模型。 */
+  async extractTextFromImageBuffer(buffer: Buffer, mimetype: string): Promise<string> {
+    const maxBytes = parseInt(
+      this.configService.get('IMAGE_FETCH_MAX_BYTES') || String(20 * 1024 * 1024),
+      10,
+    );
+    if (!buffer?.length) {
+      throw new Error('图片为空');
+    }
+    if (buffer.length > maxBytes) {
+      throw new Error(`图片超过限制（最大 ${Math.round(maxBytes / (1024 * 1024))}MB）`);
+    }
+    const mt = (mimetype || 'image/png').toLowerCase();
+    if (!mt.startsWith('image/')) {
+      throw new Error('请上传图片文件');
+    }
+    const dataUrl = `data:${mt};base64,${buffer.toString('base64')}`;
+    const response = await this.visionModel.invoke([
+      new HumanMessage({
+        content: [
+          {
+            type: 'text',
+            text: '你是 OCR 助手。请完整识别图片中的所有文字，按视觉阅读顺序输出。尽量保留换行以反映聊天界面或段落结构。不要添加任何解释、摘要或问候语。若图片中没有任何可读文字，只输出一行：【图中无文字】',
+          },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      }),
+    ]);
+    const text = extractMessageText(response);
+    if (!text) {
+      throw new Error('视觉模型未返回文字');
+    }
+    return text.trim();
+  }
+
   private async initCollection() {
     try {
       await this.client.connectPromise;

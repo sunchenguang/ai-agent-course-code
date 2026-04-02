@@ -168,6 +168,133 @@
     .example-questions span:hover {
       background: #e0e0e0;
     }
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+      padding: 14px 16px;
+      background: #f5f6ff;
+      border-radius: 10px;
+      border: 1px solid #e8e8ff;
+    }
+    .toggle-row > span {
+      font-size: 15px;
+      color: #333;
+      font-weight: 500;
+    }
+    .toggle-row .hint-inline {
+      display: block;
+      font-size: 12px;
+      color: #888;
+      font-weight: 400;
+      margin-top: 4px;
+    }
+    .switch {
+      position: relative;
+      width: 48px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      inset: 0;
+      background: #ccc;
+      border-radius: 28px;
+      transition: 0.25s;
+    }
+    .slider:before {
+      position: absolute;
+      content: '';
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background: #fff;
+      border-radius: 50%;
+      transition: 0.25s;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+    .switch input:checked + .slider {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+    .switch input:checked + .slider:before {
+      transform: translateX(20px);
+    }
+    .switch input:focus-visible + .slider {
+      outline: 2px solid #667eea;
+      outline-offset: 2px;
+    }
+    .images-section {
+      margin-top: 24px;
+      display: none;
+    }
+    .images-section.visible {
+      display: block;
+    }
+    .images-title {
+      font-weight: 500;
+      color: #666;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+    .images-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 14px;
+    }
+    .image-card {
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 13px;
+    }
+    .image-card img {
+      width: 100%;
+      height: 140px;
+      object-fit: cover;
+      display: block;
+      background: #eee;
+    }
+    .image-card-body {
+      padding: 10px 12px;
+    }
+    .image-card-score {
+      display: inline-block;
+      background: #764ba2;
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      margin-bottom: 6px;
+    }
+    .image-card-title {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 6px;
+      line-height: 1.35;
+    }
+    .image-card-desc {
+      color: #666;
+      line-height: 1.45;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .image-card a {
+      color: #667eea;
+      font-size: 12px;
+      word-break: break-all;
+    }
   </style>
 </head>
 <body>
@@ -178,6 +305,16 @@
         <label for="question">问一个问题</label>
         <p class="hint">基于你上传的聊天记录，AI 会帮你找到相关内容并回答</p>
         <input type="text" id="question" placeholder="例如：我们上次聊了什么开心的事？">
+      </div>
+      <div class="toggle-row">
+        <label for="searchImagesToggle" style="cursor:pointer; flex:1;">
+          <span>搜索图片知识库</span>
+          <span class="hint-inline">打开后，AI 回答会一并参考已入库的图片说明；下方展示匹配到的图片</span>
+        </label>
+        <label class="switch" title="是否在问答中检索图片">
+          <input type="checkbox" id="searchImagesToggle">
+          <span class="slider"></span>
+        </label>
       </div>
       <button class="btn" id="askBtn" onclick="askQuestion()">提问</button>
       
@@ -198,6 +335,11 @@
         <div class="sources-title">📚 参考的聊天记录片段</div>
         <div id="sourcesList"></div>
       </div>
+
+      <div class="images-section" id="imagesSection">
+        <div class="images-title">🖼️ 匹配的图片知识库</div>
+        <div class="images-grid" id="imagesGrid"></div>
+      </div>
     </div>
     <a href="/chat-upload.html" class="nav-link">← 返回上传页面</a>
   </div>
@@ -209,6 +351,9 @@
     const answerContent = document.getElementById('answerContent');
     const sourcesSection = document.getElementById('sourcesSection');
     const sourcesList = document.getElementById('sourcesList');
+    const searchImagesToggle = document.getElementById('searchImagesToggle');
+    const imagesSection = document.getElementById('imagesSection');
+    const imagesGrid = document.getElementById('imagesGrid');
 
     function setQuestion(q) {
       questionEl.value = q;
@@ -233,6 +378,10 @@
       answerContent.classList.add('loading');
       answerContent.textContent = '正在思考...';
       sourcesSection.classList.remove('visible');
+      imagesSection.classList.remove('visible');
+      imagesGrid.innerHTML = '';
+
+      const useImageSearch = searchImagesToggle.checked;
 
       try {
         // 先获取相关片段
@@ -249,11 +398,51 @@
           `).join('');
         }
 
+        if (useImageSearch) {
+          try {
+            const imgRes = await fetch(
+              `/image-knowledge/search?q=${encodeURIComponent(question)}&limit=5`,
+            );
+            const imgData = await imgRes.json();
+            if (imgData.success && imgData.results && imgData.results.length > 0) {
+              imagesSection.classList.add('visible');
+              imagesGrid.innerHTML = imgData.results
+                .map((r) => {
+                  const url = escapeHtml(r.imageUrl || '');
+                  const title = r.title ? escapeHtml(r.title) : '（无标题）';
+                  const desc = escapeHtml((r.content || '').slice(0, 200));
+                  const pct = ((r.score ?? 0) * 100).toFixed(1);
+                  return `
+                  <div class="image-card">
+                    <a href="${url}" target="_blank" rel="noopener noreferrer">
+                      <img src="${url}" alt="" loading="lazy" onerror="this.style.display='none'">
+                    </a>
+                    <div class="image-card-body">
+                      <span class="image-card-score">相似度 ${pct}%</span>
+                      <div class="image-card-title">${title}</div>
+                      <div class="image-card-desc">${desc}</div>
+                      <div style="margin-top:8px;"><a href="${url}" target="_blank" rel="noopener noreferrer">打开原图</a></div>
+                    </div>
+                  </div>`;
+                })
+                .join('');
+            }
+          } catch (_) {
+            /* 图库未配置或检索失败时不阻断问答 */
+          }
+        }
+
         // 流式获取回答
         answerContent.textContent = '';
         answerContent.classList.remove('loading');
-        
-        const response = await fetch(`/chat-memory/ask?q=${encodeURIComponent(question)}&limit=3`);
+
+        const askQs = new URLSearchParams({
+          q: question,
+          limit: '3',
+        });
+        if (useImageSearch) askQs.set('searchImages', '1');
+
+        const response = await fetch(`/chat-memory/ask?${askQs.toString()}`);
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
 

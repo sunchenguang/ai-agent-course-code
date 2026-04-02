@@ -7,12 +7,41 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { ImageKnowledgeService } from './image-knowledge.service';
 
 @Controller('image-knowledge')
 export class ImageKnowledgeController {
   constructor(private readonly imageKnowledgeService: ImageKnowledgeService) {}
+
+  /** 上传聊天截图等图片，识别图中文字（依赖 VISION_MODEL_NAME / 多模态模型）。 */
+  @Post('ocr-text')
+  @UseInterceptors(FileInterceptor('image'))
+  async ocrChatImage(
+    @UploadedFile()
+    file?: {
+      buffer: Buffer;
+      mimetype: string;
+      size: number;
+    },
+  ) {
+    if (!file?.buffer?.length) {
+      return { success: false, message: '请通过 FormData 的 image 字段上传图片' };
+    }
+    try {
+      const text = await this.imageKnowledgeService.extractTextFromImageBuffer(
+        file.buffer,
+        file.mimetype,
+      );
+      return { success: true, text };
+    } catch (e) {
+      return { success: false, message: (e as Error).message };
+    }
+  }
 
   /** 仅预览：根据链接生成简短说明，不入库。 */
   @Post('preview-description')
@@ -55,6 +84,23 @@ export class ImageKnowledgeController {
   @Get()
   list() {
     return { success: true, records: this.imageKnowledgeService.listAll() };
+  }
+
+  /** 按问题语义检索图库（需在 :id 路由之前声明）。 */
+  @Get('search')
+  async searchByQuery(@Query('q') q: string, @Query('limit') limit?: string) {
+    if (!q?.trim()) {
+      return { success: false, message: '查询内容不能为空' };
+    }
+    try {
+      const results = await this.imageKnowledgeService.searchForQuery(
+        q.trim(),
+        limit ? parseInt(limit, 10) : 5,
+      );
+      return { success: true, results };
+    } catch (e) {
+      return { success: false, message: (e as Error).message };
+    }
   }
 
   @Get(':id')
