@@ -20,7 +20,9 @@
     "test:e2e": "jest --config ./test/jest-e2e.json"
   },
   "dependencies": {
+    "@ai-sdk/langchain": "^2.0.162",
     "@langchain/core": "^1.1.36",
+    "@langchain/langgraph": "^1.2.8",
     "@langchain/openai": "^1.3.1",
     "@langchain/textsplitters": "^1.0.1",
     "@nestjs/common": "^11.0.1",
@@ -30,14 +32,17 @@
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/serve-static": "^5.0.4",
     "@zilliz/milvus2-sdk-node": "^2.6.12",
+    "ai": "^6.0.156",
     "better-sqlite3": "^12.8.0",
     "dotenv": "^17.3.1",
     "exifr": "^7.1.3",
+    "langchain": "^1.3.1",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
     "tencentcloud-sdk-nodejs": "^4.1.201",
     "tencentcloud-sdk-nodejs-tts": "^4.1.203",
-    "ws": "^8.20.0"
+    "ws": "^8.20.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",

@@ -5,6 +5,10 @@ import { TtsRelayService } from './speech/tts-relay.service';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableCors({
+    origin: '*',
+    credentials: true,
+  });
   const ttsRelayService = app.get(TtsRelayService);
   const server = app.getHttpServer();
 
