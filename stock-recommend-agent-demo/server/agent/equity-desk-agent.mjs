@@ -7,7 +7,9 @@ import { createDeepAgent } from "deepagents";
 
 import { runBatchStockResearch } from "./batch-research.mjs";
 import { computeRankingFromSessionMemory } from "./ranking-from-workspace.mjs";
+import { filterTickersToResearchTargets, readResearchTargetTickers } from "./research-targets.mjs";
 import { createStreamingReportTool } from "./streaming-report-tool.mjs";
+import { createDiscoverHotSectorsTool } from "./sector-discovery-tool.mjs";
 import {
   createResolveCompanyTickerTool,
   createSaveFindingsTool,
@@ -22,11 +24,18 @@ import {
   setSessionRanking,
 } from "./session-workspace.mjs";
 import { formatResearchTargetHint } from "../utils/company-ticker.mjs";
+import { createMcpAnalysisTools } from "../mcp/mcp-langchain-tools.mjs";
+import { isMcpSectorEnabled } from "../mcp/mcp-config.mjs";
 
 function createBatchResearchTool(sessionId) {
   return tool(
     async ({ tickers, theme }) => {
-      const result = await runBatchStockResearch(sessionId, { tickers, theme: theme ?? "" });
+      const allowed = readResearchTargetTickers(sessionId);
+      const scopedTickers = filterTickersToResearchTargets(tickers ?? [], allowed);
+      const result = await runBatchStockResearch(sessionId, {
+        tickers: scopedTickers,
+        theme: theme ?? "",
+      });
       return JSON.stringify(result, null, 2);
     },
     {
@@ -71,12 +80,13 @@ function buildMarketResearcherSubAgent(sessionId, sessionBase) {
 
       ## 工作流程（必须按顺序完成）
 
-      1. 若 task 给的是**公司名**而非标准 ticker，先调用 resolve_company_ticker 解析代码
-      2. 调用 fetch_stock_quote 一次（支持公司名或 ticker，会自动解析并验证行情）
-      3. 调用 search_stock_news 一次（新闻写入会话内存）
-      4. 根据行情与新闻，判断情绪 label（bullish/neutral/bearish）、confidence、reason（中文）
-      5. **必须**调用 save_stock_findings，传入 ticker 与 sentiment JSON
-      6. 一句话确认完成并停止
+      1. 若 task 已给出 **6 位 A 股代码**（如 002240、688352），**直接**用该代码调用 fetch_stock_quote，**不要**调用 resolve_company_ticker
+      2. 若 task 给的是公司名，也优先用 task 中的代码；仅当 task 无代码时再调用 resolve_company_ticker
+      3. 调用 fetch_stock_quote 一次（支持公司名或 ticker，会自动解析并验证行情）
+      4. 调用 search_stock_news 一次（ticker 优先用 fetch_stock_quote 返回的 sessionTicker，也支持 companyName；新闻写入会话内存）
+      5. 根据行情与新闻，判断情绪 label（bullish/neutral/bearish）、confidence、reason（中文）
+      6. **必须**调用 save_stock_findings，ticker 使用 fetch_stock_quote 返回的 **sessionTicker**（禁止改用 task 中的其他代码）
+      7. 一句话确认完成并停止
 
       **所有输出必须使用中文**（股票代码可保留英文）
     `,
@@ -85,6 +95,7 @@ function buildMarketResearcherSubAgent(sessionId, sessionBase) {
       createSessionFetchQuoteTool(sessionId),
       createSessionSearchNewsTool(sessionId),
       createSaveFindingsTool(sessionId),
+      ...createMcpAnalysisTools(),
     ],
   };
 }
@@ -134,9 +145,23 @@ function compactRankingForPrompt(ranking = []) {
 
 function buildOrchestratorPrompt(
   sessionBase,
-  { isFollowUp = false, rankingData = null, researchResolution = null } = {},
+  { isFollowUp = false, rankingData = null, researchResolution = null, discoveryMode = false } = {},
 ) {
   const researchTargetHint = formatResearchTargetHint(researchResolution);
+  const scopedTickers = (researchResolution?.tickers ?? [])
+    .map((ticker) => String(ticker).trim())
+    .filter(Boolean);
+  const scopeBlock =
+    scopedTickers.length > 0
+      ? dedent`
+        ## 研究范围（必须严格遵守）
+
+        - 本轮**仅**允许调研：${scopedTickers.join("、")}
+        - **禁止**调研上述列表以外的任何 ticker
+        - \`resolve_company_ticker\` 返回的 candidates 仅供排查误解析，**不得**据此委派 market-researcher
+        - 用户只提到一家公司时，最终 ranking **只能包含 1 只股票**
+      `
+      : "";
   if (isFollowUp) {
     const rankingBlock = rankingData?.ranking?.length
       ? `\n\n## 已有 ranking 数据\n\`\`\`json\n${JSON.stringify(compactRankingForPrompt(rankingData.ranking), null, 2)}\n\`\`\``
@@ -185,6 +210,8 @@ function buildOrchestratorPrompt(
     - 只有在解析与行情验证都失败后，才可说明「暂未找到可交易 ticker」
 
     ${researchTargetHint ? `\n${researchTargetHint}\n` : ""}
+    ${discoveryMode ? `\n## 板块发现模式\n\n- 本轮为**领域发现**任务，研究范围已由 MCP 板块数据或 discover_hot_sectors 工具确定\n- 向用户简要说明选中的板块与成分股后，按标准流程委派 market-researcher\n- 报告须包含「领域概览」小节\n- **禁止**凭记忆编造未在发现结果中的板块或股票\n` : ""}
+    ${scopeBlock ? `\n${scopeBlock}\n` : ""}
 
     ## 标准流程（优先委派子 Agent）
 
@@ -219,7 +246,7 @@ function buildOrchestratorPrompt(
 
 export function createEquityDeskAgent(
   sessionId,
-  { emit, isFollowUp = false, researchResolution = null } = {},
+  { emit, isFollowUp = false, researchResolution = null, discoveryMode = false } = {},
 ) {
   const apiKey = process.env.OPENAI_API_KEY?.trim();
   if (!apiKey) {
@@ -242,6 +269,9 @@ export function createEquityDeskAgent(
   const tools = [];
   if (!isFollowUp) {
     tools.push(createResolveCompanyTickerTool());
+    if (isMcpSectorEnabled()) {
+      tools.push(createDiscoverHotSectorsTool(sessionId));
+    }
     tools.push(createBatchResearchTool(sessionId));
     if (typeof emit === "function") {
       tools.push(createStreamingReportTool(sessionId, emit));
@@ -254,6 +284,7 @@ export function createEquityDeskAgent(
       isFollowUp,
       rankingData,
       researchResolution,
+      discoveryMode,
     }),
     memory: [path.join(projectDir, "AGENTS.md")],
     skills: isFollowUp ? [] : ["/skills/"],

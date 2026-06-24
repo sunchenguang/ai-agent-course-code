@@ -77,6 +77,7 @@ export async function requestAgentStream(payload, handlers = {}) {
     if (event === "subagent_done") handlers.onSubagentDone?.(parsed);
     if (event === "artifact") handlers.onArtifact?.(parsed);
     if (event === "ranking") handlers.onRanking?.(parsed);
+    if (event === "sector_discovery") handlers.onSectorDiscovery?.(parsed);
     if (event === "report_ready") {
       receivedReport = true;
       handlers.onReportReady?.(parsed);

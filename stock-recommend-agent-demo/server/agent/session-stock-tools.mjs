@@ -3,26 +3,26 @@ import { z } from "zod";
 
 import { searchStockNews } from "../tools/bocha-search.mjs";
 import { getStockSnapshot } from "../tools/yahoo-finance.mjs";
-import { normalizeCompanyOrTicker } from "../utils/company-ticker.mjs";
+import { normalizeCompanyOrTicker, isResolvableTicker, normalizeResolvableTicker } from "../utils/company-ticker.mjs";
+import { parseMarketTicker, toDisplayTicker } from "../utils/market-ticker.mjs";
 import { resolveCompanyTicker } from "../utils/resolve-company-ticker.mjs";
+import {
+  lookupResearchTarget,
+  readResearchTargetTickers,
+} from "./research-targets.mjs";
 import {
   buildFindingsMarkdown,
   normalizeWorkspaceTicker,
   resolveYahooTicker,
 } from "./batch-research.mjs";
-import { readSessionFile, writeSessionFile } from "./session-memory.mjs";
-
-function marketDataPath(ticker) {
-  return `sources/market_data_${normalizeWorkspaceTicker(ticker)}.json`;
-}
-
-function newsPath(ticker) {
-  return `sources/news_${normalizeWorkspaceTicker(ticker)}.json`;
-}
-
-function findingsPath(ticker) {
-  return `sources/findings_${normalizeWorkspaceTicker(ticker)}.md`;
-}
+import {
+  findingsPath,
+  marketDataPath,
+  newsPath,
+  readSessionMarketData,
+  readSessionNews,
+} from "./session-market-data.mjs";
+import { writeSessionFile } from "./session-memory.mjs";
 
 const sentimentSchema = z.object({
   label: z.enum(["bullish", "neutral", "bearish"]).describe("情绪标签"),
@@ -30,8 +30,36 @@ const sentimentSchema = z.object({
   reason: z.string().min(1).describe("中文理由"),
 });
 
-async function resolveTickerInput(input) {
+async function resolveTickerInput(input, sessionId) {
   const raw = String(input ?? "").trim();
+
+  if (sessionId) {
+    const target = lookupResearchTarget(sessionId, raw);
+    if (target?.ticker) {
+      return {
+        ticker: target.ticker,
+        companyName: target.companyName || target.name || raw,
+        source: target.source ?? "research-target",
+      };
+    }
+  }
+
+  const domesticTicker = normalizeResolvableTicker(raw);
+  if (domesticTicker && isResolvableTicker(domesticTicker)) {
+    const parsed = parseMarketTicker(domesticTicker);
+    if (parsed.market === "cn-a" || parsed.market === "cn-hk") {
+      const displayTicker = toDisplayTicker(parsed);
+      const snapshot = await getStockSnapshot(displayTicker);
+      if (!snapshot.error) {
+        return {
+          ticker: parsed.code ?? normalizeWorkspaceTicker(displayTicker),
+          companyName: snapshot.shortName ?? raw,
+          source: "direct-domestic",
+        };
+      }
+    }
+  }
+
   const alias = normalizeCompanyOrTicker(raw);
   if (alias) {
     const snapshot = await getStockSnapshot(alias);
@@ -42,6 +70,20 @@ async function resolveTickerInput(input) {
 
   const resolved = await resolveCompanyTicker(raw);
   if (resolved.ticker) {
+    const allowed = sessionId ? readResearchTargetTickers(sessionId) : null;
+    const normalizedResolved = normalizeWorkspaceTicker(resolved.ticker);
+    if (allowed?.length && !allowed.includes(normalizedResolved)) {
+      const target = sessionId ? lookupResearchTarget(sessionId, raw) : null;
+      if (target?.ticker) {
+        return {
+          ticker: target.ticker,
+          companyName: target.companyName || target.name || resolved.companyName || raw,
+          source: "research-target",
+          resolveWarning: `解析结果 ${normalizedResolved} 不在本轮调研范围，已改用 ${target.ticker}`,
+        };
+      }
+    }
+
     return {
       ticker: resolved.ticker,
       companyName: resolved.companyName ?? raw,
@@ -50,7 +92,7 @@ async function resolveTickerInput(input) {
   }
 
   return {
-    ticker: alias ?? raw.toUpperCase(),
+    ticker: alias ?? normalizeWorkspaceTicker(domesticTicker) ?? raw.toUpperCase(),
     companyName: raw,
     source: "fallback",
     warning: resolved.warning,
@@ -61,7 +103,18 @@ export function createResolveCompanyTickerTool() {
   return tool(
     async ({ companyName }) => {
       const result = await resolveCompanyTicker(companyName);
-      return JSON.stringify(result, null, 2);
+      const { candidates, ...safe } = result;
+      return JSON.stringify(
+        {
+          ...safe,
+          candidateNote:
+            candidates?.length && safe.ticker
+              ? "候选项仅供排查误解析，禁止对候选项发起调研"
+              : undefined,
+        },
+        null,
+        2,
+      );
     },
     {
       name: "resolve_company_ticker",
@@ -77,15 +130,24 @@ export function createResolveCompanyTickerTool() {
 export function createSessionFetchQuoteTool(sessionId) {
   return tool(
     async ({ ticker }) => {
-      const resolved = await resolveTickerInput(ticker);
+      const resolved = await resolveTickerInput(ticker, sessionId);
       const normalized = normalizeWorkspaceTicker(resolved.ticker);
+      const allowed = readResearchTargetTickers(sessionId);
+      if (allowed?.length && !allowed.includes(normalized)) {
+        throw new Error(
+          `解析结果 ${normalized} 不在本轮调研范围（${allowed.join("、")}）。请直接使用 task 中的 6 位 A 股代码调用 fetch_stock_quote。`,
+        );
+      }
       const snapshot = await getStockSnapshot(resolveYahooTicker(resolved.ticker));
       const payload = {
         ...snapshot,
         ticker: normalized,
+        sessionTicker: normalized,
         resolvedFrom: resolved.companyName,
         resolveSource: resolved.source,
-        ...(resolved.warning ? { resolveWarning: resolved.warning } : {}),
+        ...(resolved.warning || resolved.resolveWarning
+          ? { resolveWarning: resolved.resolveWarning ?? resolved.warning }
+          : {}),
       };
       writeSessionFile(sessionId, marketDataPath(normalized), JSON.stringify(payload, null, 2));
       return JSON.stringify(payload, null, 2);
@@ -93,7 +155,7 @@ export function createSessionFetchQuoteTool(sessionId) {
     {
       name: "fetch_stock_quote",
       description:
-        "获取单只股票行情快照并写入会话内存。支持公司名或 ticker；会先尝试解析 ticker 再拉行情。",
+        "获取单只股票行情快照并写入会话内存。支持公司名或 ticker；会先尝试解析 ticker 再拉行情。返回 JSON 中的 sessionTicker 字段须原样传给 save_stock_findings。",
       schema: z.object({
         ticker: z.string().min(1).describe("股票代码或公司名称，如 NVDA、SpaceX"),
       }),
@@ -101,10 +163,22 @@ export function createSessionFetchQuoteTool(sessionId) {
   );
 }
 
+export const searchNewsInputSchema = z
+  .object({
+    ticker: z.string().min(1).optional().describe("股票代码或公司名称"),
+    companyName: z.string().min(1).optional().describe("公司名称，与 ticker 二选一"),
+    theme: z.string().optional().describe("研究主题，如 AI 芯片股"),
+    count: z.number().int().min(1).max(10).optional().describe("结果数量，默认 5"),
+  })
+  .refine((data) => Boolean(data.ticker || data.companyName), {
+    message: "ticker 或 companyName 至少提供一个",
+  });
+
 export function createSessionSearchNewsTool(sessionId) {
   return tool(
     async ({ ticker, companyName, theme, count }) => {
-      const resolved = await resolveTickerInput(ticker);
+      const input = ticker ?? companyName;
+      const resolved = await resolveTickerInput(input, sessionId);
       const normalized = normalizeWorkspaceTicker(resolved.ticker);
       const result = await searchStockNews({
         ticker: resolveYahooTicker(resolved.ticker),
@@ -125,13 +199,9 @@ export function createSessionSearchNewsTool(sessionId) {
     },
     {
       name: "search_stock_news",
-      description: "搜索单只股票近期新闻，结果写入会话内存。",
-      schema: z.object({
-        ticker: z.string().min(1).describe("股票代码或公司名称"),
-        companyName: z.string().optional().describe("公司名称，可选"),
-        theme: z.string().optional().describe("研究主题，如 AI 芯片股"),
-        count: z.number().int().min(1).max(10).optional().describe("结果数量，默认 5"),
-      }),
+      description:
+        "搜索单只股票近期新闻，结果写入会话内存。支持 ticker 或 companyName（至少填一个）；优先使用 fetch_stock_quote 返回的 sessionTicker。",
+      schema: searchNewsInputSchema,
     },
   );
 }
@@ -139,31 +209,45 @@ export function createSessionSearchNewsTool(sessionId) {
 export function createSaveFindingsTool(sessionId) {
   return tool(
     async ({ ticker, name, sentiment }) => {
-      const resolved = await resolveTickerInput(ticker);
-      const normalized = normalizeWorkspaceTicker(resolved.ticker);
-      const stockRaw = readSessionFile(sessionId, marketDataPath(normalized));
-      if (!stockRaw) {
-        throw new Error(`未找到 ${normalized} 行情数据，请先调用 fetch_stock_quote`);
+      let { storageKey, stockData, autoMatched, available } = readSessionMarketData(
+        sessionId,
+        ticker,
+      );
+      if (!stockData) {
+        const target = lookupResearchTarget(sessionId, ticker);
+        if (target?.ticker) {
+          ({ storageKey, stockData, autoMatched, available } = readSessionMarketData(
+            sessionId,
+            target.ticker,
+          ));
+        }
+      }
+      if (!stockData) {
+        const hint = available.length
+          ? `会话中已有行情：${available.join("、")}。请使用 fetch_stock_quote 返回的 sessionTicker。`
+          : "请先调用 fetch_stock_quote。";
+        throw new Error(`未找到 ${normalizeWorkspaceTicker(ticker) || ticker} 行情数据，${hint}`);
       }
 
-      const stockData = JSON.parse(stockRaw);
-      const newsRaw = readSessionFile(sessionId, newsPath(normalized));
-      const news = newsRaw ? JSON.parse(newsRaw) : { items: [] };
+      const news = readSessionNews(sessionId, storageKey);
       const markdown = buildFindingsMarkdown({
-        ticker: normalized,
-        name: name?.trim() || stockData.shortName || normalized,
+        ticker: storageKey,
+        name: name?.trim() || stockData.shortName || storageKey,
         news,
         sentiment,
       });
-      writeSessionFile(sessionId, findingsPath(normalized), markdown);
-      return `已保存 ${normalized} 调研笔记与情绪分析`;
+      writeSessionFile(sessionId, findingsPath(storageKey), markdown);
+      const suffix = autoMatched
+        ? `（已自动匹配会话中的 ${storageKey}，请后续统一使用 sessionTicker）`
+        : "";
+      return `已保存 ${storageKey} 调研笔记与情绪分析${suffix}`;
     },
     {
       name: "save_stock_findings",
       description:
-        "将情绪分析结果写入会话内存（findings 文件）。必须在 fetch_stock_quote 与 search_stock_news 之后调用。",
+        "将情绪分析结果写入会话内存（findings 文件）。必须在 fetch_stock_quote 与 search_stock_news 之后调用；ticker 必须使用 fetch_stock_quote 返回的 sessionTicker，禁止自行更换代码。",
       schema: z.object({
-        ticker: z.string().min(1).describe("股票代码"),
+        ticker: z.string().min(1).describe("fetch_stock_quote 返回的 sessionTicker"),
         name: z.string().optional().describe("公司名称，可选"),
         sentiment: sentimentSchema,
       }),

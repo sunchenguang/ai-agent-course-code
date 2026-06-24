@@ -2,7 +2,9 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { scoreCandidates } from "../utils/scoring.mjs";
+import { normalizeWorkspaceTicker } from "./batch-research.mjs";
 import { listSessionFiles, readSessionFile } from "./session-memory.mjs";
+import { readResearchTargetTickers, normalizeResearchTargetList } from "./research-targets.mjs";
 function parseSentimentFromFindings(content) {
   const fenced = content.match(/```json\s*([\s\S]*?)```/i)?.[1];
   if (!fenced) {
@@ -112,18 +114,28 @@ export function computeRankingFromEntries(entries, { theme = "" } = {}) {
   };
 }
 
-export function computeRankingFromSessionMemory(sessionId, { theme = "" } = {}) {
+export function computeRankingFromSessionMemory(sessionId, { theme = "", allowedTickers = null } = {}) {
+  const allowed =
+    allowedTickers?.length
+      ? normalizeResearchTargetList(allowedTickers)
+      : readResearchTargetTickers(sessionId);
+
   const marketFiles = listSessionFiles(sessionId, "sources/").filter((file) =>
     /^sources\/market_data_[A-Z0-9.]+\.json$/i.test(file),
   );
 
-  const entries = marketFiles.map((file) => {
-    const ticker = file.match(/^sources\/market_data_(.+)\.json$/i)?.[1]?.toUpperCase() ?? file;
-    const stockData = JSON.parse(readSessionFile(sessionId, file) ?? "{}");
-    const findingsContent = readSessionFile(sessionId, `sources/findings_${ticker}.md`) ?? "";
-    const newsContent = readSessionFile(sessionId, `sources/news_${ticker}.json`) ?? "";
-    return { ticker, stockData, findingsContent, newsContent };
-  });
+  const entries = marketFiles
+    .map((file) => {
+      const ticker = file.match(/^sources\/market_data_(.+)\.json$/i)?.[1]?.toUpperCase() ?? file;
+      const stockData = JSON.parse(readSessionFile(sessionId, file) ?? "{}");
+      const findingsContent = readSessionFile(sessionId, `sources/findings_${ticker}.md`) ?? "";
+      const newsContent = readSessionFile(sessionId, `sources/news_${ticker}.json`) ?? "";
+      return { ticker, stockData, findingsContent, newsContent };
+    })
+    .filter(({ ticker }) => {
+      if (!allowed?.length) return true;
+      return allowed.includes(normalizeWorkspaceTicker(ticker));
+    });
 
   return computeRankingFromEntries(entries, { theme });
 }

@@ -7,13 +7,22 @@ description: 结构化股票投研流程，优先委派 market-researcher 与 qu
 
 当用户要求研究、对比、推荐或深度分析股票时使用本技能。
 
+## 技能路由
+
+| 场景 | 叠加技能 |
+|------|----------|
+| 未指定股票、询问热点/板块/方向 | `sector-discovery`（需 MCP_SECTOR_ENABLED） |
+| A 股（6 位代码 / .SS / .SZ） | `china-a-share-analysis` |
+| 技术面/资金流深度分析 | `stock-analyst`（需 MCP 分析工具） |
+| 报告定稿 | `equity-report-writer` |
+
 > **注意**：本 Demo 使用**内存会话**，中间结果不落盘，仅通过 SSE 流式展示。
 
 ## 公司名与 ticker
 
 - 用户可能输入公司名而非代码（如 SpaceX、Stripe）
 - **禁止**在未调用工具前断言「未上市 / 无代码」
-- 先用 `resolve_company_ticker` 联网解析，再用 Yahoo 行情验证
+- 先用 `resolve_company_ticker` 联网解析，再用 `fetch_stock_quote` 验证（MCP 启用时优先 MCP，失败 fallback 直连）
 - `fetch_stock_quote` / `search_stock_news` 也支持直接传公司名
 
 ## 流程

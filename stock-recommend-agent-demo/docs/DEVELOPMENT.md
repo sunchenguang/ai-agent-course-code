@@ -19,8 +19,12 @@ stock-recommend-agent-demo/
 │   │   ├── score-stocks.mjs
 │   │   └── generate-report.mjs
 │   ├── tools/                   # 外部服务封装
-│   │   ├── yahoo-finance.mjs
+│   │   ├── yahoo-finance.mjs    # 兼容导出 → quote-provider
+│   │   ├── direct-quote.mjs     # 直连行情
+│   │   ├── quote-provider.mjs   # MCP 分层入口
+│   │   ├── domestic-market.mjs
 │   │   └── bocha-search.mjs
+│   ├── mcp/                     # MCP 客户端与映射
 │   ├── utils/                   # 通用工具
 │   │   ├── normalize-input.mjs
 │   │   ├── scoring.mjs
@@ -28,6 +32,11 @@ stock-recommend-agent-demo/
 │   │   ├── llm.mjs
 │   │   └── streaming-response.mjs
 │   └── __tests__/               # 单元测试
+├── skills/                      # DeepAgents 技能
+│   ├── stock-research/
+│   ├── equity-report-writer/
+│   ├── china-a-share-analysis/
+│   └── stock-analyst/
 ├── web/                         # 前端（Vite root）
 │   ├── index.html
 │   └── src/
@@ -180,12 +189,28 @@ data: {"tickers":[...],"theme":"...","ranking":[...],"reportMarkdown":"...","err
 
 ## 关键模块说明
 
-### 行情 `yahoo-finance.mjs`
+### 行情 `quote-provider.mjs`（分层）
 
-- 优先调用 Yahoo Chart API（轻量、快）
-- 失败时 fallback 到 `yahoo-finance2.quote()`
-- 支持 `YAHOO_FINANCE_PROXY` 代理（`undici.ProxyAgent`）
-- 返回统一结构；失败时 `error` 字段有值，不抛异常
+- **入口**：`getStockSnapshot()`（`yahoo-finance.mjs` 重新导出，保持兼容）
+- **MCP 优先**：`MCP_QUOTE_ENABLED=true` 时调用 `stock-sdk-mcp` 的 `get_quotes_by_query`
+- **Fallback**：MCP 失败或无价格时，走 `direct-quote.mjs`（东方财富 A/HK + Yahoo 其他）
+- **直连实现**：`direct-quote.mjs` / `domestic-market.mjs`
+
+### MCP 集成 `server/mcp/`
+
+| 文件 | 说明 |
+|------|------|
+| `mcp-config.mjs` | 环境变量：`MCP_QUOTE_ENABLED`、`MCP_ANALYSIS_ENABLED` |
+| `mcp-client-pool.mjs` | stdio 连接 `stock-sdk-mcp`，单例复用 |
+| `stock-sdk-quote.mjs` | MCP 响应 → 统一 snapshot 映射 |
+| `mcp-langchain-tools.mjs` | 可选深度分析工具注入 Agent |
+
+启用示例（`.env`）：
+
+```env
+MCP_QUOTE_ENABLED=true
+MCP_ANALYSIS_ENABLED=true
+```
 
 ### 新闻 `bocha-search.mjs`
 

@@ -19,11 +19,23 @@ export const fetchStockQuoteTool = tool(
   },
 );
 
+const searchNewsInputSchema = z
+  .object({
+    ticker: z.string().min(1).optional().describe("股票代码或公司名称"),
+    companyName: z.string().min(1).optional().describe("公司名称，与 ticker 二选一"),
+    theme: z.string().optional().describe("研究主题，如 AI 芯片股"),
+    count: z.number().int().min(1).max(10).optional().describe("结果数量，默认 5"),
+  })
+  .refine((data) => Boolean(data.ticker || data.companyName), {
+    message: "ticker 或 companyName 至少提供一个",
+  });
+
 export const searchStockNewsTool = tool(
   async ({ ticker, companyName, theme, count }) => {
+    const input = ticker ?? companyName;
     const result = await searchStockNews({
-      ticker: ticker.toUpperCase(),
-      companyName,
+      ticker: input.toUpperCase(),
+      companyName: companyName ?? (ticker ? undefined : input),
       theme,
       count: count ?? 5,
     });
@@ -37,11 +49,6 @@ export const searchStockNewsTool = tool(
   {
     name: "search_stock_news",
     description: "搜索单只股票的近期新闻。返回标题、URL、摘要。",
-    schema: z.object({
-      ticker: z.string().min(1).describe("股票代码"),
-      companyName: z.string().optional().describe("公司名称，可选"),
-      theme: z.string().optional().describe("研究主题，如 AI 芯片股"),
-      count: z.number().int().min(1).max(10).optional().describe("结果数量，默认 5"),
-    }),
+    schema: searchNewsInputSchema,
   },
 );

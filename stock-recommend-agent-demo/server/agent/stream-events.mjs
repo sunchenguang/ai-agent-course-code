@@ -1,10 +1,14 @@
 import { AIMessage, HumanMessage } from "@langchain/core/messages";
 
 import { createEquityDeskAgent } from "./equity-desk-agent.mjs";
+import { writeResearchTargets } from "./research-targets.mjs";
 import { readLatestReport, readRankingIfExists } from "./session-workspace.mjs";
 import { runStreamingSessionReport } from "./streaming-report-tool.mjs";
 import { extractTickersFromText } from "../utils/company-ticker.mjs";
 import { resolveResearchTargetsFromText } from "../utils/resolve-company-ticker.mjs";
+import { detectDiscoveryRequest } from "../utils/discovery-intent.mjs";
+import { isMcpSectorEnabled } from "../mcp/mcp-config.mjs";
+import { discoverHotSectors } from "../mcp/sector-discovery.mjs";
 import { isFollowUpTurn } from "../utils/turn-mode.mjs";
 
 const REPORT_CHUNK_SIZE = 160;
@@ -343,6 +347,47 @@ function handleUpdatesChunk(namespace, chunk, context) {
   }
 }
 
+async function resolveResearchContext(lastUserMessage) {
+  const discovery = detectDiscoveryRequest(lastUserMessage);
+  if (discovery.isDiscovery) {
+    if (!isMcpSectorEnabled()) {
+      return {
+        tickers: [],
+        details: [],
+        discoveryMode: true,
+        discoveryError:
+          "未启用 MCP_SECTOR_ENABLED。请在 .env 设置 MCP_SECTOR_ENABLED=true 后重试，或改为提供具体股票代码。",
+      };
+    }
+
+    try {
+      const sectorDiscovery = await discoverHotSectors(discovery.options);
+      return {
+        tickers: sectorDiscovery.tickers,
+        details: sectorDiscovery.tickerDetails.map((item) => ({
+          query: item.sectorName,
+          ticker: item.ticker,
+          companyName: item.name,
+          source: `sector-${item.boardType}`,
+          confidence: "high",
+        })),
+        discoveryMode: true,
+        sectorDiscovery,
+        theme: sectorDiscovery.theme,
+      };
+    } catch (error) {
+      return {
+        tickers: [],
+        details: [],
+        discoveryMode: true,
+        discoveryError: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  return resolveResearchTargetsFromText(lastUserMessage);
+}
+
 export async function runAgentStream(
   { sessionId, messages, resetWorkspace = false },
   { send, resetSessionWorkspace, ensureSessionWorkspace },
@@ -373,11 +418,30 @@ export async function runAgentStream(
     [...messages].reverse().find((item) => item.role === "user")?.content ?? "";
   const researchResolution = isFollowUp
     ? { tickers: extractTickersFromText(lastUserMessage), details: [] }
-    : await resolveResearchTargetsFromText(lastUserMessage);
+    : await resolveResearchContext(lastUserMessage);
+  if (!isFollowUp) {
+    writeResearchTargets(sessionId, {
+      tickers: researchResolution.tickers,
+      query: lastUserMessage,
+      details: researchResolution.details ?? researchResolution.sectorDiscovery?.tickerDetails ?? [],
+    });
+    if (researchResolution.sectorDiscovery) {
+      send("sector_discovery", {
+        sectors: researchResolution.sectorDiscovery.sectors,
+        tickers: researchResolution.tickers,
+        theme: researchResolution.sectorDiscovery.theme,
+        disclaimer: researchResolution.sectorDiscovery.disclaimer,
+      });
+      send("phase", { phase: "discovery", status: "completed" });
+    } else if (researchResolution.discoveryMode && researchResolution.discoveryError) {
+      send("sector_discovery", { error: researchResolution.discoveryError });
+    }
+  }
   const agent = createEquityDeskAgent(sessionId, {
     isFollowUp,
     emit: emitReportEvent,
     researchResolution,
+    discoveryMode: Boolean(researchResolution.discoveryMode),
   });
   const recursionLimit = Number(process.env.RECURSION_LIMIT) || 300;
   const pending = new Map();

@@ -159,6 +159,21 @@ export async function resolveCompanyTicker(
     }
   }
 
+  const isChineseQuery = /[\u4e00-\u9fff]/.test(query);
+
+  // 中文公司名优先 LLM + 行情验证，避免 Bocha 误匹配美股代码（如 APP、SPCX）
+  if (isChineseQuery) {
+    const llmFirst = await tryResolveViaLlm(query, {
+      verifyQuote,
+      quoteChecker,
+      ranked: [],
+      searchQuery: undefined,
+      searchWarning: undefined,
+      llmResolver,
+    });
+    if (llmFirst) return llmFirst;
+  }
+
   const search = await searchCompanyTickerCandidates(query);
   const ranked = rankTickerCandidatesFromText(
     search.items.map((item) => `${item.title}\n${item.summary}`).join("\n"),
@@ -202,7 +217,24 @@ export async function resolveCompanyTicker(
     };
   }
 
-  for (const candidate of ranked.slice(0, 5)) {
+  const rankedCandidates = ranked.slice(0, 8);
+  const orderedCandidates = isChineseQuery
+    ? [...rankedCandidates].sort((left, right) => {
+        const leftDomestic =
+          parseMarketTicker(left.ticker).market === "cn-a" ||
+          parseMarketTicker(left.ticker).market === "cn-hk"
+            ? 1
+            : 0;
+        const rightDomestic =
+          parseMarketTicker(right.ticker).market === "cn-a" ||
+          parseMarketTicker(right.ticker).market === "cn-hk"
+            ? 1
+            : 0;
+        return rightDomestic - leftDomestic || right.score - left.score;
+      })
+    : rankedCandidates;
+
+  for (const candidate of orderedCandidates.slice(0, 5)) {
     const verified = await verifyListedTicker(candidate.ticker, quoteChecker);
     if (verified.ok) {
       return buildResolvedResult({

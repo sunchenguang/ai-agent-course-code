@@ -9,6 +9,7 @@ import ClassicMode from "./ClassicMode.jsx";
 import { MarkdownPreview, RankingSection } from "./shared-ui.jsx";
 
 const agentExamples = [
+  "A 股最近有哪些值得关注的方向？每个方向推荐 2 只代表性股票",
   "研究 AI 芯片股：NVDA, AMD, TSM, AVGO, ASML，给出推荐排序和风险提示",
   "对比 NVDA 和 AMD 的估值与近期新闻情绪，我更关心中长期基本面",
   "分析美股科技巨头 MSFT, AAPL, GOOGL, AMZN, META 的动量与风险",
@@ -285,6 +286,20 @@ export default function App() {
               ...msg,
               ranking: data.ranking,
               theme: data.theme || msg.theme || "",
+            }));
+          },
+          onSectorDiscovery: (data) => {
+            if (data?.error || !data?.sectors?.length) return;
+            updateStreamingAssistant((msg) => ({
+              ...msg,
+              theme: data.theme || msg.theme || "A 股板块发现",
+            }));
+            setActivity((prev) => ({
+              ...prev,
+              artifacts: [
+                ...prev.artifacts.filter((item) => item.kind !== "sector_discovery"),
+                { kind: "sector_discovery", ...data },
+              ],
             }));
           },
           onReportReady: () => {

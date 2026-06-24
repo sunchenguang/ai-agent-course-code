@@ -42,7 +42,8 @@ npm start       # Express 同时提供 API 和静态资源
 - **Agent**：DeepAgents + 子 Agent（market-researcher / quant-analyst / editor）
 - **经典模式**：LangGraph 固定流水线
 - **LLM**：OpenAI 兼容 API
-- **行情**：Yahoo Finance
+- **行情**：MCP stock-sdk-mcp（可选，优先）→ 东方财富(A/HK) / Yahoo(美股) fallback
+- **深度分析**：MCP analyze_stock / 资金流（可选）
 - **新闻**：博查 AI 搜索 API
 - **后端**：Express 5
 - **前端**：React 19 + Vite 7

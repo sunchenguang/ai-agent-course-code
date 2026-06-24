@@ -221,18 +221,51 @@ export function rankTickerCandidatesFromText(text, companyName = "") {
 export function formatResearchTargetHint(resolved) {
   const tickers = Array.isArray(resolved) ? resolved : resolved?.tickers ?? [];
   const details = Array.isArray(resolved) ? [] : resolved?.details ?? [];
+  const sectorDiscovery = resolved?.sectorDiscovery ?? null;
+  const discoveryError = resolved?.discoveryError ?? "";
 
-  if (!tickers.length && !details.some((item) => !item.ticker)) {
+  if (!tickers.length && !details.some((item) => !item.ticker) && !sectorDiscovery && !discoveryError) {
     return "";
   }
 
   const lines = [];
 
+  if (sectorDiscovery?.sectors?.length) {
+    lines.push("已通过 MCP 板块发现选出以下 A 股热点领域与调研标的：");
+    for (const sector of sectorDiscovery.sectors) {
+      const pct =
+        sector.changePercent == null ? "—" : `${sector.changePercent.toFixed(2)}%`;
+      const stockLine = (sector.stocks ?? [])
+        .map((stock) => `${stock.name}(${stock.ticker ?? stock.code})`)
+        .join("、");
+      lines.push(
+        `- **${sector.name}**（${sector.boardTypeLabel ?? "板块"}，涨跌幅 ${pct}）${stockLine ? ` → ${stockLine}` : ""}`,
+      );
+    }
+    if (sectorDiscovery.disclaimer) {
+      lines.push("", `> ${sectorDiscovery.disclaimer}`);
+    }
+  }
+
+  if (discoveryError) {
+    lines.push("", `板块预发现失败：${discoveryError}`, "请调用 discover_hot_sectors 工具重试。");
+  }
+
   if (tickers.length) {
-    lines.push("已从用户输入识别到以下研究标的：");
+    if (sectorDiscovery?.sectors?.length) {
+      lines.push("", "本轮调研 ticker（仅限下列列表）：");
+    } else {
+      lines.push("已从用户输入识别到以下研究标的：");
+    }
     for (const ticker of tickers) {
-      const detail = details.find((item) => item.ticker === ticker);
-      if (detail?.companyName && detail.companyName !== ticker) {
+      const detail =
+        details.find((item) => item.ticker === ticker) ??
+        sectorDiscovery?.tickerDetails?.find((item) => item.ticker === ticker);
+      if (detail?.name && detail.name !== ticker) {
+        lines.push(
+          `- **${ticker}**（${detail.name}${detail.sectorName ? `，${detail.sectorName}` : ""}）`,
+        );
+      } else if (detail?.companyName && detail.companyName !== ticker) {
         lines.push(`- **${ticker}**（${detail.companyName}，来源：${detail.source ?? "解析"}）`);
       } else {
         lines.push(`- **${ticker}**`);
@@ -252,7 +285,8 @@ export function formatResearchTargetHint(resolved) {
     "## 本轮用户请求解析提示",
     ...lines,
     "",
-    "请先基于上述 ticker 委派 market-researcher；若仍有未解析名称，调用 resolve_company_ticker 后再调研。",
+    "请先基于上述 ticker 委派 market-researcher；**不要**调研列表以外的代码。",
+    "若仍有未解析名称，可调用 resolve_company_ticker 后再调研，但仍只调研用户意图内的标的。",
     "**禁止**在未调用解析/行情工具前断言「未上市/无股票代码」。",
   ].join("\n");
 }

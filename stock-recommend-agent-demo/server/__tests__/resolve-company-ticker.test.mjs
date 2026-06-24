@@ -90,6 +90,39 @@ test("resolveCompanyTicker parses ticker from bocha search text", async () => {
   }
 });
 
+test("resolveCompanyTicker prefers LLM for Chinese company names before bocha US tickers", async () => {
+  const originalSearch = global.fetch;
+  const originalApiKey = process.env.BOCHA_API_KEY;
+  process.env.BOCHA_API_KEY = "test-key";
+  global.fetch = async () =>
+    mockBochaSearchResponse("Applovin Corp trades under ticker APP on NASDAQ.");
+
+  try {
+    const result = await resolveCompanyTicker("贵州茅台", {
+      verifyQuote: true,
+      llmResolver: async () => ({
+        ticker: "600519.SS",
+        companyName: "贵州茅台",
+        confidence: "high",
+        source: "llm",
+      }),
+      quoteChecker: async (ticker) =>
+        ticker === "600519.SS" || ticker === "600519"
+          ? { ticker: "600519.SS", shortName: "贵州茅台", regularMarketPrice: 1200 }
+          : { error: "not found" },
+    });
+    assert.equal(result.ticker, "600519.SS");
+    assert.equal(result.source, "llm+quote");
+  } finally {
+    global.fetch = originalSearch;
+    if (originalApiKey === undefined) {
+      delete process.env.BOCHA_API_KEY;
+    } else {
+      process.env.BOCHA_API_KEY = originalApiKey;
+    }
+  }
+});
+
 test("resolveCompanyTicker verifies direct ticker symbols without bocha", async () => {
   const originalSearch = global.fetch;
   let fetchCalled = false;
