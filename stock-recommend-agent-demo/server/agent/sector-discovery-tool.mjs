@@ -7,8 +7,13 @@ import { writeResearchTargets } from "./research-targets.mjs";
 export function createDiscoverHotSectorsTool(sessionId) {
   return tool(
     async ({ boardTypes, topSectors, stocksPerSector, maxTickers }) => {
+      const normalizedBoardTypes = Array.isArray(boardTypes)
+        ? boardTypes
+            .map((item) => String(item ?? "").trim())
+            .filter((item) => item === "industry" || item === "concept")
+        : undefined;
       const result = await discoverHotSectors({
-        boardTypes: boardTypes ?? ["industry"],
+        boardTypes: normalizedBoardTypes?.length ? normalizedBoardTypes : ["industry"],
         topSectors: topSectors ?? 3,
         stocksPerSector: stocksPerSector ?? 2,
         maxTickers: maxTickers ?? 5,

@@ -3,7 +3,7 @@ import { isMcpQuoteEnabled } from "../mcp/mcp-config.mjs";
 import { getDirectStockSnapshot } from "./direct-quote.mjs";
 
 /**
- * 行情入口：MCP 启用时仅走 stock-sdk-mcp；未启用时走直连（东方财富 / Yahoo）
+ * 行情入口：优先使用 MCP；若 MCP 返回空数据，则回退到直连（东方财富 / Yahoo）
  */
 export async function getStockSnapshot(ticker) {
   const normalized = String(ticker ?? "").trim();
@@ -16,9 +16,29 @@ export async function getStockSnapshot(ticker) {
     };
   }
 
-  if (isMcpQuoteEnabled()) {
-    return fetchQuoteViaMcp(normalized);
+  if (!isMcpQuoteEnabled()) {
+    return getDirectStockSnapshot(normalized);
   }
 
-  return getDirectStockSnapshot(normalized);
+  const mcpSnapshot = await fetchQuoteViaMcp(normalized);
+  const hasUsefulQuote =
+    Number.isFinite(Number(mcpSnapshot?.regularMarketPrice)) ||
+    Number.isFinite(Number(mcpSnapshot?.marketCap));
+
+  if (hasUsefulQuote) {
+    return mcpSnapshot;
+  }
+
+  const directSnapshot = await getDirectStockSnapshot(normalized);
+  if (!directSnapshot.error) {
+    return {
+      ...directSnapshot,
+      source: `${mcpSnapshot?.source ?? "MCP/stock-sdk-mcp"} → ${directSnapshot.source}`,
+    };
+  }
+
+  return {
+    ...mcpSnapshot,
+    error: mcpSnapshot.error || directSnapshot.error,
+  };
 }

@@ -131,6 +131,7 @@ function SourceModal({ item, onClose }) {
   }, [onClose]);
 
   const stockData = item.stockData ?? {};
+  const displayName = item.name ?? stockData.shortName ?? item.ticker;
   const currency = stockData.currency ?? "USD";
   const stockFields = [
     ["当前价格", formatPrice(stockData.regularMarketPrice, currency)],
@@ -139,7 +140,9 @@ function SourceModal({ item, onClose }) {
     ["52 周高点", formatPrice(stockData.fiftyTwoWeekHigh, currency)],
     ["市盈率", formatNumber(stockData.trailingPE ?? stockData.forwardPE)],
     ["成交量", formatNumber(stockData.regularMarketVolume)],
-  ].filter(([, value]) => value !== "未知");
+  ];
+  const visibleStockFields = stockFields.filter(([, value]) => value !== "未知");
+  const hasQuoteData = visibleStockFields.length > 0;
   const newsItems = item.news?.items ?? [];
   const riskFlags = item.riskFlags?.length ? item.riskFlags : ["未发现明显风险信号"];
   const stockSourceName = stockData.source ?? "Yahoo Finance";
@@ -158,8 +161,8 @@ function SourceModal({ item, onClose }) {
           <div>
             <p className="eyebrow">Source Details</p>
             <h2>
-              {item.ticker}
-              <span>{item.name ?? item.ticker}</span>
+              {displayName}
+              <span>{item.ticker}</span>
             </h2>
           </div>
           <button aria-label="关闭信息源弹窗" className="modal-close" onClick={onClose} type="button">
@@ -194,9 +197,9 @@ function SourceModal({ item, onClose }) {
                 来源：{stockSourceName}
               </a>
             </div>
-            {stockFields.length ? (
+            {hasQuoteData ? (
               <dl className="source-fields">
-                {stockFields.map(([label, value]) => (
+                {visibleStockFields.map(([label, value]) => (
                   <div key={label}>
                     <dt>{label}</dt>
                     <dd>{value}</dd>
@@ -204,7 +207,9 @@ function SourceModal({ item, onClose }) {
                 ))}
               </dl>
             ) : (
-              <p className="empty-source">暂无可展示行情字段</p>
+              <p className="empty-source">
+                暂无可展示行情字段，当前数据源可能只返回了基础元信息，已尝试自动回退到可用行情源。
+              </p>
             )}
           </section>
 
@@ -243,6 +248,8 @@ function SourceModal({ item, onClose }) {
 }
 
 function RankingCard({ item, index, onOpen }) {
+  const displayName = item.name ?? item.stockData?.shortName ?? item.ticker;
+
   function handleKeyDown(event) {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -252,7 +259,7 @@ function RankingCard({ item, index, onOpen }) {
 
   return (
     <article
-      aria-label={`查看 ${item.ticker} 信息源`}
+      aria-label={`查看 ${displayName} 信息源`}
       className="ranking-card"
       onClick={() => onOpen(item)}
       onKeyDown={handleKeyDown}
@@ -262,8 +269,8 @@ function RankingCard({ item, index, onOpen }) {
       <div className="rank-badge">Top {index + 1}</div>
       <div className="card-head">
         <div>
-          <h3>{item.ticker}</h3>
-          <p>{item.name ?? item.ticker}</p>
+          <h3>{displayName}</h3>
+          <p>{item.ticker}</p>
         </div>
         <div className="score">
           <strong>{item.score}</strong>

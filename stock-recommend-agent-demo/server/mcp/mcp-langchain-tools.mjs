@@ -57,5 +57,19 @@ export function createMcpAnalysisTools() {
         code: z.string().min(1).describe("股票代码"),
       }),
     ),
+    createMcpBridgeTool(
+      "mcp_get_fund_quotes",
+      "get_fund_quotes",
+      "MCP 获取公募基金/ETF 实时净值。",
+      z.object({
+        codes: z.array(z.string().min(1)).min(1).max(50).describe("基金代码数组，如 000001、110011") ,
+      }),
+    ),
+    createMcpBridgeTool(
+      "mcp_get_fund_code_list",
+      "get_fund_code_list",
+      "MCP 获取全部基金代码列表。",
+      z.object({}),
+    ),
   ];
 }

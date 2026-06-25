@@ -93,8 +93,13 @@ export async function discoverHotSectors({
     throw new Error("未启用 MCP_SECTOR_ENABLED，无法执行板块发现。请在 .env 中设置 MCP_SECTOR_ENABLED=true");
   }
 
+  const supportedBoardTypes = [...new Set((Array.isArray(boardTypes) ? boardTypes : [boardTypes])
+    .map((item) => String(item ?? "").trim())
+    .filter((item) => item && BOARD_TOOL[item]))];
+  const effectiveBoardTypes = supportedBoardTypes.length ? supportedBoardTypes : ["industry"];
+
   const mergedBoards = [];
-  for (const boardType of boardTypes) {
+  for (const boardType of effectiveBoardTypes) {
     const boards = await fetchBoardList(boardType);
     for (const board of filterBoards(boards, { excludePattern })) {
       mergedBoards.push({ ...board, boardType, boardTypeLabel: BOARD_TOOL[boardType].label });

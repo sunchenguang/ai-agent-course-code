@@ -4,6 +4,7 @@ import { normalizeInputNode } from "./nodes/normalize-input.mjs";
 import { scoreStocksNode } from "./nodes/score-stocks.mjs";
 import { buildCandidatesNode, searchNewsNode } from "./nodes/search-news.mjs";
 import { streamReportMarkdown } from "./utils/report-generation.mjs";
+import { runFundRecommendationStream } from "./nodes/fund-recommendation.mjs";
 
 const defaultNodes = {
   normalizeInputNode,
@@ -32,10 +33,19 @@ async function applyStep({ id, node }, state, send) {
   return nextState;
 }
 
+function isFundRecommendationInput(input) {
+  const text = `${input?.theme ?? ""} ${Array.isArray(input?.tickers) ? input.tickers.join(" ") : ""} ${input?.tickerText ?? ""}`;
+  return /基金|ETF|etf|公募|指数基金|宽基|行业基金|主题基金|收益优先|基金排名|基金推荐|基金排行/i.test(text);
+}
+
 export async function runRecommendationStream(
   input,
-  { send, nodes = defaultNodes, reportStreamer = streamReportMarkdown } = {},
+  { send, nodes = defaultNodes, reportStreamer = streamReportMarkdown, fundRunner = runFundRecommendationStream } = {},
 ) {
+  if (isFundRecommendationInput(input)) {
+    return fundRunner(input, { send });
+  }
+
   let state = {
     tickers: input.tickers,
     tickerText: input.tickerText,

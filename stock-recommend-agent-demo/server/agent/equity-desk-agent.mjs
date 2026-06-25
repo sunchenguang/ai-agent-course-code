@@ -50,6 +50,7 @@ function createBatchResearchTool(sessionId) {
   );
 }
 
+
 function createComputeRankingTool(sessionId) {
   return tool(
     async ({ theme }) => {
@@ -263,6 +264,7 @@ export function createEquityDeskAgent(
     model,
     temperature: 0,
     apiKey,
+    useResponsesApi: false,
     ...(baseURL ? { configuration: { baseURL } } : {}),
   });
 

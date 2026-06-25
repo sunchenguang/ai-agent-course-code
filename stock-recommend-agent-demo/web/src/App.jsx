@@ -13,6 +13,8 @@ const agentExamples = [
   "研究 AI 芯片股：NVDA, AMD, TSM, AVGO, ASML，给出推荐排序和风险提示",
   "对比 NVDA 和 AMD 的估值与近期新闻情绪，我更关心中长期基本面",
   "分析美股科技巨头 MSFT, AAPL, GOOGL, AMZN, META 的动量与风险",
+  "推荐收益优先的 ETF，优先看宽基和行业主题基金",
+  "帮我做一个 ETF ranking，我更看重收益表现",
 ];
 
 const emptyActivity = () => ({
@@ -302,11 +304,6 @@ export default function App() {
               ],
             }));
           },
-          onReportReady: () => {
-            reportContentReceived = true;
-            updateStreamingAssistant((msg) => ({ ...msg, reportStreaming: false }));
-            setPhaseProgress((prev) => updatePhaseProgress(prev, { phase: "report", status: "completed" }));
-          },
           onDone: (data) => {
             setMessages((prev) => {
               const index = prev.findLastIndex((item) => item.role === "assistant" && item.streaming);
@@ -417,7 +414,9 @@ export default function App() {
           </button>
           <div className="main-header-title">
             <strong>{mode === "agent" ? "Agent 投研" : "经典流水线"}</strong>
-            <span>{mode === "agent" ? sessionTitle : "固定 6 步 LangGraph 对照演示"}</span>
+            <span>
+              {mode === "agent" ? sessionTitle : "固定 6 步 LangGraph 对照演示"}
+            </span>
           </div>
           {mode === "agent" ? (
             <div className="header-actions">
@@ -496,7 +495,7 @@ export default function App() {
               onChange={setInput}
               onStop={handleStop}
               onSubmit={handleSend}
-              placeholder="描述研究任务，例如股票池、关注点和分析角度…"
+              placeholder="描述研究任务，例如股票池、基金/ETF 偏好、关注点和分析角度…"
               value={input}
             />
           </>
